@@ -5,6 +5,7 @@ import numpy as np
 from enum import Enum
 from copy import deepcopy
 from bresenham import plot_line
+from scipy import signal
 
 LIDAR_NUM_READINGS = 667
 LIDAR_ACTUAL_NUM_READINGS = 530
@@ -151,16 +152,15 @@ def main():
 
     controllers = [Controller(WP), Controller(reverse_WP)]
     controller_idx = 0
+    robot_coordinates = []
     
     while robot.step(timestep) != -1:
         xw    = gps.getValues()[0]
         yw    = gps.getValues()[1]
         theta = np.arctan2(compass.getValues()[0],compass.getValues()[1])
 
-
         px_robot, py_robot = world2map(xw, yw)
-        map_display.setColor(0x00FF00)
-        map_display.drawPixel(px_robot, py_robot)
+        robot_coordinates.append((px_robot, py_robot))
 
         if controller_idx >= len(controllers):
             break 
@@ -199,16 +199,23 @@ def main():
                 px_laser = coordinate[0]
                 py_laser = coordinate[1]
 
-                if px_laser > 0.01 and py_laser > 0.01:
+                if map[px_laser, py_laser] > 0.01:
                     map[px_laser, py_laser] -= 0.01 
+
+        ## Configuration space
+        kernel= np.ones((45, 45))  
+        cmap = signal.convolve2d(map,kernel,mode='same')
 
         for row in np.arange(0, 300):
             for col in np.arange(0, 300):
-                v = min(int((map[row, col]) * 255), 255)
+                v = min(int((cmap[row, col]) * 255), 255)
                 if v > 0.01:
                     map_display.setColor(v*256**2 + v*256 + v)
                     map_display.drawPixel(row, col)
-
+        
+        map_display.setColor(0x00FF00)
+        for coordinate in robot_coordinates:
+            map_display.drawPixel(coordinate[0], coordinate[1])
 
 
 if __name__ == '__main__':
