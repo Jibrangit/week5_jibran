@@ -135,6 +135,7 @@ def main():
     xr, yr = [], []
     
     map_display = robot.getDevice('map_display')
+    cspace_display = robot.getDevice('cspace_display')
     
     home_position = (0.4, -3.1)
     WP = [(-1.65, -3.2),
@@ -192,7 +193,8 @@ def main():
         X_w = w_T_r @ X_i
         for i in range(LIDAR_ACTUAL_NUM_READINGS):
             px, py = world2map(X_w[0][i], X_w[1][i])
-            map[px, py] += 0.01
+            if map[px, py] < 1:
+                map[px, py] += 0.01
 
             laser_line_coordinates = plot_line(px_robot, py_robot, px, py)
             for coordinate in laser_line_coordinates[:-1]:
@@ -205,6 +207,9 @@ def main():
         ## Configuration space
         kernel= np.ones((45, 45))  
         cmap = signal.convolve2d(map,kernel,mode='same')
+        cmap = np.clip(cmap, 0, 1)
+        cspace = cmap > 0.7
+        print(cspace)
 
         for row in np.arange(0, 300):
             for col in np.arange(0, 300):
@@ -213,9 +218,18 @@ def main():
                     map_display.setColor(v*256**2 + v*256 + v)
                     map_display.drawPixel(row, col)
         
-        map_display.setColor(0x00FF00)
+        for row in np.arange(0, 300):
+            for col in np.arange(0, 300):
+                if cspace[row, col]:
+                    cspace_display.setColor(0xFFFFFF)
+                    cspace_display.drawPixel(row, col)
+                else:
+                    cspace_display.setColor(0x000000)
+                    cspace_display.drawPixel(row, col)
+        
+        cspace_display.setColor(0x00FF00)
         for coordinate in robot_coordinates:
-            map_display.drawPixel(coordinate[0], coordinate[1])
+            cspace_display.drawPixel(coordinate[0], coordinate[1])
 
 
 if __name__ == '__main__':
