@@ -4,8 +4,12 @@ from controller import Robot, Supervisor, Motor, PositionSensor
 import numpy as np
 from enum import Enum
 from copy import deepcopy
-from bresenham import plot_line
+from typing import List, Tuple
 from scipy import signal
+
+from bresenham import plot_line
+from robot_controller import Controller
+
 
 LIDAR_NUM_READINGS = 667
 LIDAR_ACTUAL_NUM_READINGS = 530
@@ -18,87 +22,16 @@ ARENA_LENGTH = 5.9
 LIDAR_ROBOT_X_OFFSET = 0.202
 BALL_DIAMETER = 0.0399
 WHEEL_MAX_SPEED_RADPS = 10.15
+OCCUPANCY_GRID_THRESHOLD = 0.7
+MAP_LENGTH = 300
+KERNEL_SIZE = 45
 
-class RobotDriveState(Enum):
-    IDLE = 0
-    DRIVE = 1
-    TURN = 2
-    ADJUST_CASTOR = 3
 
-def world2map(x,y):
-    px = np.round(((x - TOP_LEFT_X) / ARENA_WIDTH)  * 300)
-    py = np.round(((TOP_LEFT_Y - y) / ARENA_LENGTH) * 300)
+def world2map(x,y) -> Tuple[float]:
+    px = np.round(((x - TOP_LEFT_X) / ARENA_WIDTH)  * MAP_LENGTH)
+    py = np.round(((TOP_LEFT_Y - y) / ARENA_LENGTH) * MAP_LENGTH)
     return int(px), int(py)
 
-class Controller:
-    def __init__(self, waypoints):
-        self._waypoints = waypoints
-        self._index = 0
-        self._robot_state = RobotDriveState.DRIVE
-        self._MIN_POSITION_ERROR = 0.3  # metres
-        self._MIN_HEADING_ERROR = 0.1   # radians
-
-    def compute_errors(self, pose):
-        xw = pose[0]
-        yw = pose[1]
-        theta = pose[2]
-
-        rho = np.sqrt((xw - self._waypoints[self._index][0])**2 + (yw - self._waypoints[self._index][1])**2)
-        alpha = np.arctan2(self._waypoints[self._index][1] - yw, self._waypoints[self._index][0] - xw) - theta
-        
-        # atan2 discontinuity
-        if alpha > np.pi:
-            alpha -= 2 * np.pi
-        
-        if alpha < -np.pi:
-            alpha += 2 * np.pi
-
-        return rho, alpha
-
-    def get_input_vels(self, pose):
-
-        rho, alpha = self.compute_errors(pose)
-
-        if self._robot_state == RobotDriveState.DRIVE:
-
-            p_trans, p_rot = 0.3 * WHEEL_MAX_SPEED_RADPS, 0.1 * WHEEL_MAX_SPEED_RADPS
-            vl = p_trans * rho - p_rot * alpha 
-            vr = p_trans * rho + p_rot * alpha
-
-            if abs(rho) < self._MIN_POSITION_ERROR:
-                self._index += 1
-                self._robot_state = RobotDriveState.TURN
-
-
-        elif self._robot_state == RobotDriveState.TURN:
-            
-            p_trans, p_rot = 0.1 * WHEEL_MAX_SPEED_RADPS, 0.3 * WHEEL_MAX_SPEED_RADPS
-            vl = p_trans * rho - p_rot * alpha 
-            vr = p_trans * rho + p_rot * alpha
-
-            if abs(alpha) < self._MIN_HEADING_ERROR:
-                self._robot_state = RobotDriveState.DRIVE
-
-        else:
-            vl, vr = 0.0, 0.0
-
-
-        vl = max(min(vl, WHEEL_MAX_SPEED_RADPS), -WHEEL_MAX_SPEED_RADPS)
-        vr = max(min(vr, WHEEL_MAX_SPEED_RADPS), -WHEEL_MAX_SPEED_RADPS)
-
-        return vl, vr
-    
-    def completed(self):
-        if self._index >= len(self._waypoints):
-            return True
-        else:
-            return False 
-        
-    def get_index(self):
-        return self._index
-    
-    def get_current_target(self):
-        return self._waypoints[self._index]
 
 def main():
     robot = Supervisor()
@@ -151,7 +84,7 @@ def main():
     
     marker = robot.getFromDef("marker").getField("translation")
 
-    controllers = [Controller(WP), Controller(reverse_WP)]
+    controllers = [Controller(WHEEL_MAX_SPEED_RADPS, WP), Controller(WHEEL_MAX_SPEED_RADPS, reverse_WP)]
     controller_idx = 0
     robot_coordinates = []
     
@@ -164,6 +97,8 @@ def main():
         robot_coordinates.append((px_robot, py_robot))
 
         if controller_idx >= len(controllers):
+            leftMotor.setVelocity(0.0)
+            rightMotor.setVelocity(0.0)
             break 
 
         elif controllers[controller_idx].completed():
@@ -196,6 +131,7 @@ def main():
             if map[px, py] < 1:
                 map[px, py] += 0.01
 
+            # Reduce probability of obstacle for all pixels in the laser's line of sight using Bresenham's algorithm.
             laser_line_coordinates = plot_line(px_robot, py_robot, px, py)
             for coordinate in laser_line_coordinates[:-1]:
                 px_laser = coordinate[0]
@@ -205,21 +141,22 @@ def main():
                     map[px_laser, py_laser] -= 0.01 
 
         ## Configuration space
-        kernel= np.ones((45, 45))  
+        kernel= np.ones((KERNEL_SIZE, KERNEL_SIZE))  
         cmap = signal.convolve2d(map,kernel,mode='same')
-        cmap = np.clip(cmap, 0, 1)
-        cspace = cmap > 0.7
-        print(cspace)
+        cmap = np.clip(cmap, 0, 1)  
+        cspace = cmap > OCCUPANCY_GRID_THRESHOLD
 
-        for row in np.arange(0, 300):
-            for col in np.arange(0, 300):
+        # Draw configuration map
+        for row in np.arange(0, MAP_LENGTH):
+            for col in np.arange(0, MAP_LENGTH):
                 v = min(int((cmap[row, col]) * 255), 255)
                 if v > 0.01:
                     map_display.setColor(v*256**2 + v*256 + v)
                     map_display.drawPixel(row, col)
         
-        for row in np.arange(0, 300):
-            for col in np.arange(0, 300):
+        # Draw configuration space
+        for row in np.arange(0, MAP_LENGTH):
+            for col in np.arange(0, MAP_LENGTH):
                 if cspace[row, col]:
                     cspace_display.setColor(0xFFFFFF)
                     cspace_display.drawPixel(row, col)

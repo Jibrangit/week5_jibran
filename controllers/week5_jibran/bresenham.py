@@ -1,6 +1,9 @@
 from typing import List, Tuple
 
 def plot_line_low(x0, y0, x1, y1) -> List[Tuple[int]]:
+    '''
+        Lines with low slopes, where X changes more frequently than Y
+    '''
     dx = x1 - x0
     dy = y1 - y0
     yi = 1
@@ -22,7 +25,10 @@ def plot_line_low(x0, y0, x1, y1) -> List[Tuple[int]]:
 
     return coordinates
 
-def plot_line_high(x0, y0, x1, y1):
+def plot_line_high(x0, y0, x1, y1) -> List[Tuple[int]]:
+    '''
+        Lines with steep slopes, where Y changes more frequently than X
+    '''
     dx = x1 - x0
     dy = y1 - y0
     xi = 1
@@ -43,7 +49,10 @@ def plot_line_high(x0, y0, x1, y1):
 
     return coordinates
 
-def plot_line(x0, y0, x1, y1):
+def plot_line(x0, y0, x1, y1) -> List[Tuple[int]]:
+    '''
+        Given 2 integer coordinates, retrieve all integer coordinates lying on the line connecting the coordinates.
+    '''
     if abs(y1 - y0) < abs(x1 - x0):
         if x0 > x1:
             plot = plot_line_low(x1, y1, x0, y0)
