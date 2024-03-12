@@ -6,6 +6,7 @@ from enum import Enum
 from copy import deepcopy
 from typing import List, Tuple
 from scipy import signal
+import matplotlib.pyplot as plt
 
 from bresenham import plot_line
 from robot_controller import Controller
@@ -24,7 +25,7 @@ BALL_DIAMETER = 0.0399
 WHEEL_MAX_SPEED_RADPS = 10.15
 OCCUPANCY_GRID_THRESHOLD = 0.7
 MAP_LENGTH = 300
-KERNEL_SIZE = 45
+KERNEL_SIZE = 56
 
 
 def world2map(x,y) -> Tuple[float]:
@@ -32,6 +33,30 @@ def world2map(x,y) -> Tuple[float]:
     py = np.round(((TOP_LEFT_Y - y) / ARENA_LENGTH) * MAP_LENGTH)
     return int(px), int(py)
 
+def map2world(px, py) -> Tuple[float]:
+    x = ((px / MAP_LENGTH) * ARENA_WIDTH) + TOP_LEFT_X
+    y = TOP_LEFT_Y - ((py / MAP_LENGTH) * ARENA_LENGTH)
+    return x, y
+
+def compute_cspace(map):
+    kernel= np.ones((KERNEL_SIZE, KERNEL_SIZE))  
+    cmap = map
+    cmap = signal.convolve2d(map,kernel,mode='same')
+    cmap = np.clip(cmap, 0, 1)  # As convolution increases values over 1.
+    cspace = cmap > OCCUPANCY_GRID_THRESHOLD
+    return cspace
+    
+
+def display_cspace(cspace):
+    plt.imshow(cspace)
+    plt.show()
+
+def save_cspace(cspace):
+    np.save('cspace',cspace)
+
+def plan_path(map, px, py):
+    pass
+    
 
 def main():
     robot = Supervisor()
@@ -44,10 +69,10 @@ def main():
     leftMotor.setPosition(float('inf'))
     rightMotor.setPosition(float('inf'))
 
-    leftEncoder = robot.getDevice('wheel_left_joint_sensor')
-    rightEncoder = robot.getDevice('wheel_right_joint_sensor')
-    leftEncoder.enable(timestep)
-    rightEncoder.enable(timestep)
+    # leftEncoder = robot.getDevice('wheel_left_joint_sensor')
+    # rightEncoder = robot.getDevice('wheel_right_joint_sensor')
+    # leftEncoder.enable(timestep)
+    # rightEncoder.enable(timestep)
 
     
     lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
@@ -140,33 +165,32 @@ def main():
                 if map[px_laser, py_laser] > 0.01:
                     map[px_laser, py_laser] -= 0.01 
 
-        ## Configuration space
-        kernel= np.ones((KERNEL_SIZE, KERNEL_SIZE))  
-        cmap = signal.convolve2d(map,kernel,mode='same')
-        cmap = np.clip(cmap, 0, 1)  
-        cspace = cmap > OCCUPANCY_GRID_THRESHOLD
+        
 
-        # Draw configuration map
-        for row in np.arange(0, MAP_LENGTH):
-            for col in np.arange(0, MAP_LENGTH):
-                v = min(int((cmap[row, col]) * 255), 255)
-                if v > 0.01:
-                    map_display.setColor(v*256**2 + v*256 + v)
-                    map_display.drawPixel(row, col)
+        # # Draw configuration map
+        # for row in np.arange(0, MAP_LENGTH):
+        #     for col in np.arange(0, MAP_LENGTH):
+        #         v = min(int((cmap[row, col]) * 255), 255)
+        #         if v > 0.01:
+        #             map_display.setColor(v*256**2 + v*256 + v)
+        #             map_display.drawPixel(row, col)
         
-        # Draw configuration space
-        for row in np.arange(0, MAP_LENGTH):
-            for col in np.arange(0, MAP_LENGTH):
-                if cspace[row, col]:
-                    cspace_display.setColor(0xFFFFFF)
-                    cspace_display.drawPixel(row, col)
-                else:
-                    cspace_display.setColor(0x000000)
-                    cspace_display.drawPixel(row, col)
+        # # Draw configuration space
+        # for row in np.arange(0, MAP_LENGTH):
+        #     for col in np.arange(0, MAP_LENGTH):
+        #         if cspace[row, col]:
+        #             cspace_display.setColor(0xFFFFFF)
+        #             cspace_display.drawPixel(row, col)
+        #         else:
+        #             cspace_display.setColor(0x000000)
+        #             cspace_display.drawPixel(row, col)
         
-        cspace_display.setColor(0x00FF00)
-        for coordinate in robot_coordinates:
-            cspace_display.drawPixel(coordinate[0], coordinate[1])
+        # cspace_display.setColor(0x00FF00)
+        # for coordinate in robot_coordinates:
+        #     cspace_display.drawPixel(coordinate[0], coordinate[1])
+    cspace = compute_cspace(map)
+    display_cspace(cspace)
+    save_cspace(cspace)
 
 
 if __name__ == '__main__':
